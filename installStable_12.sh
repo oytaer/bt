@@ -2201,33 +2201,29 @@ Install_Bt(){
 	rm -rf /www/server/panel/plugin/webssh/
 
 	# ===== [隐私屏蔽] 下载并执行隐私补丁脚本 =====
-	# 三级查找策略：1) 脚本同目录 cp → 2) GitHub raw 下载 → 3) 官方节点下载
+	# 三级查找策略：1) 脚本同目录 cp → 2) CDN 下载 → 3) 官方节点下载
 	SCRIPT_DIR=$(cd $(dirname "$0") 2>/dev/null && pwd)
 	# 如果 SCRIPT_DIR 拿不到（curl 管道执行时 $0=/dev/fd/xx），用当前目录
 	if [ -z "$SCRIPT_DIR" ] || [ ! -d "$SCRIPT_DIR" ]; then
 		SCRIPT_DIR=$(pwd)
 	fi
 
-	# GitHub raw 仓库地址（用户可替换为自己的仓库）
-	GITHUB_RAW_BASE="${GITHUB_RAW_BASE:-https://raw.githubusercontent.com}"
-	GITHUB_REPO="${GITHUB_REPO:-}"   # 格式: "用户名/仓库名/分支" 例如 "myuser/bt-panel/main"
+	# CDN 下载地址（默认用户自己的 jsDelivr 镜像，可通过环境变量覆盖）
+	# 直接 bash installStable_12.sh 或 curl 管道执行都能命中这个策略
+	PATCH_BASE="${PATCH_BASE:-https://cdn.jsdelivr.net/gh/oytaer/bt@main}"
 
 	if [ ! -f "${setup_path}/server/panel/bt_privacy_patch.py" ];then
 		if [ -f "${SCRIPT_DIR}/bt_privacy_patch.py" ];then
-			# 策略1: 从脚本同目录 cp
+			# 策略1: 从脚本同目录 cp（三个文件都在本地）
 			cp -f "${SCRIPT_DIR}/bt_privacy_patch.py" ${setup_path}/server/panel/bt_privacy_patch.py
 			echo "  ✅ 从本地拷贝 bt_privacy_patch.py"
-		elif [ -n "$GITHUB_REPO" ];then
-			# 策略2: 从 GitHub raw 下载（设置了 GITHUB_REPO 环境变量时）
-			curl -sS --connect-timeout 10 -m 30 -o ${setup_path}/server/panel/bt_privacy_patch.py \
-				${GITHUB_RAW_BASE}/${GITHUB_REPO}/bt_privacy_patch.py > /dev/null 2>&1
-			if [ -f "${setup_path}/server/panel/bt_privacy_patch.py" ];then
-				echo "  ✅ 从 GitHub 下载 bt_privacy_patch.py"
-			fi
 		else
-			# 策略3: 从官方节点下载（最后 fallback）
+			# 策略2: 从 jsDelivr CDN 下载（覆盖 curl 管道执行和单独上传安装脚本场景）
 			curl -sS --connect-timeout 10 -m 30 -o ${setup_path}/server/panel/bt_privacy_patch.py \
-				${download_Url}/install/src/bt_privacy_patch.py > /dev/null 2>&1
+				${PATCH_BASE}/bt_privacy_patch.py > /dev/null 2>&1
+			if [ -f "${setup_path}/server/panel/bt_privacy_patch.py" ];then
+				echo "  ✅ 从 CDN 下载 bt_privacy_patch.py"
+			fi
 		fi
 	fi
 	if [ -f "${setup_path}/server/panel/bt_privacy_patch.py" ];then
@@ -2240,15 +2236,12 @@ Install_Bt(){
 		if [ -f "${SCRIPT_DIR}/bt_domain_switch.py" ];then
 			cp -f "${SCRIPT_DIR}/bt_domain_switch.py" ${setup_path}/server/panel/bt_domain_switch.py
 			echo "  ✅ 从本地拷贝 bt_domain_switch.py"
-		elif [ -n "$GITHUB_REPO" ];then
-			curl -sS --connect-timeout 10 -m 30 -o ${setup_path}/server/panel/bt_domain_switch.py \
-				${GITHUB_RAW_BASE}/${GITHUB_REPO}/bt_domain_switch.py > /dev/null 2>&1
-			if [ -f "${setup_path}/server/panel/bt_domain_switch.py" ];then
-				echo "  ✅ 从 GitHub 下载 bt_domain_switch.py"
-			fi
 		else
 			curl -sS --connect-timeout 10 -m 30 -o ${setup_path}/server/panel/bt_domain_switch.py \
-				${download_Url}/install/src/bt_domain_switch.py > /dev/null 2>&1
+				${PATCH_BASE}/bt_domain_switch.py > /dev/null 2>&1
+			if [ -f "${setup_path}/server/panel/bt_domain_switch.py" ];then
+				echo "  ✅ 从 CDN 下载 bt_domain_switch.py"
+			fi
 		fi
 	fi
 	if [ -f "${setup_path}/server/panel/bt_domain_switch.py" ];then
