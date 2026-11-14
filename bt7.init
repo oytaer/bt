@@ -159,7 +159,12 @@ panel_start()
                         auth_path=$(cat $panel_path/data/admin_path.pl)
                 fi
                 if [ "$address" = "" ];then
-                        address=$(curl -sS --connect-timeout 10 -m 60 https://www.bt.cn/Api/getIpAddress)
+                        # [隐私屏蔽] 优先从 installStable_12.sh 写入的 iplist.txt 读取公网 IP
+                        address=$(cat $panel_path/data/iplist.txt 2>/dev/null)
+                        # [隐私屏蔽] 不再 fallback 请求 bt.cn（SSL 错误提示场景，留空则 L167 LOCAL_IP 兜底）
+                        # if [ -z "$address" ];then
+                        #     address=$(curl -sS --connect-timeout 10 -m 60 https://www.bt.cn/Api/getIpAddress)
+                        # fi
                 fi
                 if [ "$auth_path" == "/" ];then
                         auth_path=/login
@@ -432,19 +437,15 @@ case "$1" in
                 ipv4_address=""
                 ipv6_address=""
                 if [ "$address" = "" ];then
-                        ipv4_address=$(curl -4 -sS --connect-timeout 4 -m 5 https://api.bt.cn/Api/getIpAddress 2>&1)
-                        if [ -z "${ipv4_address}" ];then
-                                ipv4_address=$(curl -4 -sS --connect-timeout 4 -m 5 https://www.bt.cn/Api/getIpAddress 2>&1)
-                                if [ -z "${ipv4_address}" ];then
-                                        ipv4_address=$(curl -4 -sS --connect-timeout 4 -m 5 https://www.aapanel.com/api/common/getClientIP 2>&1)
-                                fi
-                        fi
+                        # [隐私屏蔽] 优先从 installStable_12.sh 写入的 iplist.txt 读取公网 IP
+                        ipv4_address=$(cat $panel_path/data/iplist.txt 2>/dev/null)
                         IPV4_REGEX="^([0-9]{1,3}\.){3}[0-9]{1,3}$"
                         if ! [[ $ipv4_address =~ $IPV4_REGEX ]]; then
                                 ipv4_address=""
                         fi
-
-                        ipv6_address=$(curl -6 -sS --connect-timeout 4 -m 5 https://www.bt.cn/Api/getIpAddress 2>&1)
+                        # [隐私屏蔽] 不再 fallback 请求 bt.cn / aapanel.com（ipv6 同理跳过）
+                        # 原代码：curl api.bt.cn/Api/getIpAddress + www.bt.cn/Api/getIpAddress + aapanel.com/api/common/getClientIP
+                        # ipv6_address=$(curl -6 -sS --connect-timeout 4 -m 5 https://www.bt.cn/Api/getIpAddress 2>&1)
                         IPV6_REGEX="^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$"
                         if ! [[ $ipv6_address =~ $IPV6_REGEX ]]; then
                                 ipv6_address=""

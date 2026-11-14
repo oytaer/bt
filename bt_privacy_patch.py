@@ -64,343 +64,311 @@ class PatchRule:
 
 
 # ====================================================================
-# 补丁规则定义：18 个上报点 + 1 个辅助文件
+# 补丁规则定义：按 URL 锚点精确匹配上报调用行，注释掉即可
 # ====================================================================
 
 def build_rules():
-    """构建所有补丁规则"""
+    """构建所有补丁规则
+
+    匹配策略：直接用上报 URL（如 bt_error/index.php、/api/panel/s_error 等）作为锚点，
+    匹配包含该 URL 的整行代码（含前导缩进），然后在该行前加 `# [隐私屏蔽]` 注释掉。
+    这样不依赖精确的函数签名（public. 前缀有无、参数名差异等），版本兼容性更强。
+    """
     rules = []
 
     # ================================================================
-    # 第一组：bt_error 异常上报（5 处）—— 异步发，返回值没人取
+    # 第一组：bt_error 异常上报（5 处）—— 统一 URL 锚点 bt_error/index.php
+    # 原版 5 处代码结构相同，都包含 run_thread(httpPost, ("https://xxx/bt_error/index.php", error_infos))
+    # 但有 public. 前缀差异（public.py / common.py 内部直接调用不带 public.）
     # ================================================================
 
+    # 所有包含 bt_error/index.php 的 run_thread/httpPost 调用行都注释掉
+    # 用多行 DOTALL 匹配：前导空白 + run_thread 或 httpPost + URL
     rules.append(PatchRule(
-        name="bt_error_BTPanel",
-        file_rel="BTPanel/__init__.py",
-        description="bt_error 上报 #1: BTPanel/__init__.py L529",
+        name="bt_error_all",
+        file_rel="*",  # 通配：PrivacyPatcher._apply_rule 会跳过 file_rel 为 * 的文件，
+                       # 我们在 _apply_rule 外面加一个全文件扫描逻辑
+        description="bt_error 异常上报（5 处通用规则）",
         pattern=(
-            r"(?ms)"
-            r"(\s*# 提交异常报告\s*\n"
-            r"\s*if not public\.cache_get\(pkey\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*public\.run_thread\(public\.httpPost, "
-            r'\("https://api\.bt\.cn/bt_error/index\.php", error_infos\)\))'
+            r"(^\s*)"                         # Group 1: 前导缩进（保留）
+            r"(?:public\.)?"                  # 可选 public. 前缀
+            r"(run_thread\(|\w+\.run_thread\()"  # run_thread( 或 xxx.run_thread(
+            r"(?:public\.)?"                  # 可选 public. 前缀
+            r"httpPost,"                      # httpPost,
+            r"\s*"
+            r'\(\s*["\']https?://[^"\']*bt_error/index\.php["\']'
         ),
-        replacement=r"\1" + MARK + r" 已屏蔽 bt_error 上报 #1\n\2" + "\n        except: pass"
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 bt_error 异常上报\n"
+            r"\1# "                           # 注释掉原始行
+        )
     ))
 
-    # config.py:4483
+    # 直接 httpPost 调用 bt_error（不走 run_thread 包装的情况）
     rules.append(PatchRule(
-        name="bt_error_config",
-        file_rel="class/config.py",
-        description="bt_error 上报 #2: class/config.py L4483",
+        name="bt_error_direct_call",
+        file_rel="*",
+        description="bt_error 直接 httpPost 上报（不走线程包装）",
         pattern=(
-            r"(\s*# 提交\s*\n"
-            r"\s*if not public\.cache_get\(pkey\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*public\.run_thread\(public\.httpPost, "
-            r'\("https://api\.bt\.cn/bt_error/index\.php", error_infos\)\))'
+            r"(^\s*)"
+            r"(?:public\.)?"
+            r"httpPost\("
+            r'\s*["\']https?://[^"\']*bt_error/index\.php["\']'
         ),
-        replacement=r"\1" + MARK + r" 已屏蔽 bt_error 上报 #2\n\2" + "\n            except: pass"
-    ))
-
-    # userlogin.py:242
-    rules.append(PatchRule(
-        name="bt_error_userlogin",
-        file_rel="class/userlogin.py",
-        description="bt_error 上报 #3: class/userlogin.py L242",
-        pattern=(
-            r"(\s*# 提交异常报告\s*\n"
-            r"\s*if not public\.cache_get\(pkey\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*public\.run_thread\(public\.httpPost, "
-            r'\("https://api\.bt\.cn/bt_error/index\.php", error_infos\)\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 bt_error 上报 #3\n\2" + "\n            except: pass"
-    ))
-
-    # public.py:8470
-    rules.append(PatchRule(
-        name="bt_error_public",
-        file_rel="class/public.py",
-        description="bt_error 上报 #4: class/public.py L8470",
-        pattern=(
-            r"(\s*# 提交异常报告\s*\n"
-            r"\s*if not public\.cache_get\(pkey\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*public\.run_thread\(public\.httpPost, "
-            r'\("https://api\.bt\.cn/bt_error/index\.php", error_infos\)\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 bt_error 上报 #4\n\2" + "\n            except: pass"
-    ))
-
-    # common.py:1762 (geterror.aapanel.com)
-    rules.append(PatchRule(
-        name="bt_error_aapanel_common",
-        file_rel="mod/base/public_aap/common.py",
-        description="bt_error 上报 #5: mod/base/public_aap/common.py L1762",
-        pattern=(
-            r"(\s*# 提交异常报告\s*\n"
-            r"\s*if not public\.cache_get\(pkey\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*run_thread\(httpPost, "
-            r'\("https://geterror\.aapanel\.com/bt_error/index\.php", error_infos\)\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 bt_error 上报 #5\n\2" + "\n            except: pass"
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 bt_error 直接上报\n"
+            r"\1# "
+        )
     ))
 
     # ================================================================
-    # 第二组：s_error 上报（1 处）—— 返回值没人接
+    # 第二组：s_error 系统错误上报（1 处，class/public.py L1304）
+    # 原版: httpPost(GetConfigValue('home') + "/api/panel/s_error", pdata, timeout=3)
     # ================================================================
-
     rules.append(PatchRule(
         name="s_error",
         file_rel="class/public.py",
-        description="s_error 上报: class/public.py L1304",
+        description="s_error 系统错误上报: class/public.py",
         pattern=(
-            r"(\s*if os\.path\.exists\(sfile\):\s*\n"
-            r"\s*try:\s*\n)"
-            r"(\s*res = httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/s_error', s_error_datas, timeout=\(3, 10\)\))"
+            r"(^\s*)"
+            r"(?:public\.)?"
+            r'httpPost\(.*?/api/panel/s_error'
         ),
-        replacement=r"\1" + MARK + r" 已屏蔽 s_error 上报\n" + MARK + r" 已屏蔽\n# \2" + "\n            except: pass"
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 s_error 上报\n"
+            r"\1# "
+        )
     ))
 
     # ================================================================
-    # 第三组：plugin_total 插件安装计数（5 处活跃）—— 返回值没人接
+    # 第三组：plugin_total 插件安装计数上报
+    # 原版 7 处，覆盖 panelPlugin.py（2 处 run_thread 包装）+ 各插件 setup 文件
     # ================================================================
-
-    # virtualMod.py:369
     rules.append(PatchRule(
-        name="plugin_total_virtual",
-        file_rel="mod/project/virtual/virtualMod.py",
-        description="plugin_total 上报 #1: virtualMod.py L369",
+        name="plugin_total_all",
+        file_rel="*",
+        description="plugin_total 插件计数上报（通用规则覆盖所有）",
         pattern=(
-            r"(\s*)"
-            r"(public\.httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/plugin_total', "
-            r'{"pid": "402", \'p_name\': "vhost_virtual"}, 3\))'
+            r"(^\s*)"
+            r"("  # 普通捕获组：二选一（非捕获组写 (?:" 在 Python raw string 里会变成 (?": 导致 re.error）
+            r"(?:public\.)?run_thread\(\s*(?:public\.)?httpPost,"
+            r"|"
+            r"(?:public\.)?httpPost\("
+            r")"
+            r"[^;\n]*?/api/panel/plugin_total"
         ),
-        replacement=r"\1" + MARK + r" 已屏蔽 plugin_total 上报 #1\n\1# \2"
-    ))
-
-    # manageModel.py:13
-    rules.append(PatchRule(
-        name="plugin_total_mail",
-        file_rel="class/mailModel/manageModel.py",
-        description="plugin_total 上报 #2: manageModel.py L13",
-        pattern=(
-            r"(\s*)"
-            r"(public\.httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/plugin_total', "
-            r'{"pid": "403", \'p_name\': "mailmod"}, 3\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 plugin_total 上报 #2\n\1# \2"
-    ))
-
-    # setupModel.py:762
-    rules.append(PatchRule(
-        name="plugin_total_docker1",
-        file_rel="class/btdockerModel/setupModel.py",
-        description="plugin_total 上报 #3: setupModel.py L762",
-        pattern=(
-            r"(\s*)"
-            r"(public\.httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/plugin_total', "
-            r'\{"pid": "615", \'p_name\': "docker"\}, 3\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 plugin_total 上报 #3\n\1# \2"
-    ))
-
-    # setupModel.py:819
-    rules.append(PatchRule(
-        name="plugin_total_docker2",
-        file_rel="class/btdockerModel/setupModel.py",
-        description="plugin_total 上报 #4: setupModel.py L819",
-        pattern=(
-            r"(\s*)"
-            r"(public\.httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/plugin_total', "
-            r'\{"pid": "615", \'p_name\': "docker"\}, 10\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 plugin_total 上报 #4\n\1# \2"
-    ))
-
-    # dk_setup.py:237
-    rules.append(PatchRule(
-        name="plugin_total_docker3",
-        file_rel="class/projectModel/bt_docker/dk_setup.py",
-        description="plugin_total 上报 #5: dk_setup.py L237",
-        pattern=(
-            r"(\s*)"
-            r"(public\.httpPost\(public\.GetConfigValue\('home'\) \+ '/api/panel/plugin_total', "
-            r'\{"pid": "615", \'p_name\': "bt_docker"\}, 10\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 plugin_total 上报 #5\n\1# \2"
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 plugin_total 插件计数上报\n"
+            r"\1# "
+        )
     ))
 
     # ================================================================
-    # 第四组：WP Toolkit 统计（3 处）—— threading.Thread 开线程丢
+    # 第四组：total_keyword 搜索关键词上报（1 处，class/public.py L3665）
+    # 原版: httpPost(GetConfigValue('home') + '/api/panel/total_keyword', pdata)
+    # 注意：原版直接调用 httpPost 没有 run_thread 包装！
     # ================================================================
-
-    # core.py:1829 wp_installed
-    rules.append(PatchRule(
-        name="wp_toolkit_installed",
-        file_rel="class/wptoolkitModel/wp_toolkit/core.py",
-        description="WP wp_installed 上报: core.py L1829",
-        pattern=(
-            r"(\s*)"
-            r'(threading\.Thread\(target=requests\.post, kwargs=\{"url": url, "json": pdata\}\)\.start\(\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 WP wp_installed 上报\n\1# \2"
-    ))
-
-    # core.py:5133 + 5167 panel_count_daily
-    rules.append(PatchRule(
-        name="wp_toolkit_daily",
-        file_rel="class/wptoolkitModel/wp_toolkit/core.py",
-        description="WP panel_count_daily 上报 (2处): core.py L5133/L5167",
-        pattern=(
-            r"(\s*)"
-            r'(threading\.Thread\(target=lambda: requests\.post\(url, json=pdata\)\)\.start\(\))'
-        ),
-        replacement=r"\1" + MARK + r" 已屏蔽 WP panel_count_daily 上报\n\1# \2",
-        # 这个模式在文件里可能出现多次，用 replace_all 处理
-    ))
-
-    # ================================================================
-    # 第五组：total_keyword 搜索关键词（1 处）—— 返回值没人接
-    # ================================================================
-
     rules.append(PatchRule(
         name="total_keyword",
         file_rel="class/public.py",
-        description="total_keyword 上报: class/public.py L3665",
+        description="total_keyword 搜索关键词上报: class/public.py",
         pattern=(
-            r"(\s*)"
-            r'(public\.run_thread\(public\.httpPost, '
-            r"\(public\.GetConfigValue\('home'\) \+ '/api/panel/total_keyword', "
-            r"{'keyword': keyword, 'type': 1}\)\))"
+            r"(^\s*)"
+            r"(?:public\.)?"
+            r"httpPost\("
+            r"[^;\n]*?/api/panel/total_keyword"
         ),
-        replacement=r"\1" + MARK + r" 已屏蔽 total_keyword 上报\n\1# \2"
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 total_keyword 上报\n"
+            r"\1# "
+        )
     ))
 
     # ================================================================
-    # 第六组：submit_expand_pack_used（邮件群发硬件指纹上报）
-    #          ⚠️ 有返回值依赖：load_soft_list() + refresh_pd()
-    #          处理方式：注释掉 requests.post 调用块，保留后续刷新
+    # 第五组：WP Toolkit 统计（3 处，class/wptoolkitModel/wp_toolkit/core.py）
+    # 原版用 threading.Thread + requests.post，URL 格式 '{}/api/panel/wp_installed'.format(...)
+    # 和 '{}/api/panel/panel_count_daily'.format(...)
     # ================================================================
+    rules.append(PatchRule(
+        name="wp_toolkit_installed",
+        file_rel="class/wptoolkitModel/wp_toolkit/core.py",
+        description="WP wp_installed 安装成功上报: core.py L1829",
+        pattern=(
+            r"(^\s*)"
+            r"threading\.Thread\(target=.*?wp_installed.*?\.start\(\)"
+        ),
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 WP wp_installed 上报\n"
+            r"\1# "
+        )
+    ))
+    rules.append(PatchRule(
+        name="wp_toolkit_daily",
+        file_rel="class/wptoolkitModel/wp_toolkit/core.py",
+        description="WP panel_count_daily 每日统计上报（2处）: core.py L5134/L5168",
+        pattern=(
+            r"(^\s*)"
+            r"threading\.Thread\(target=.*?panel_count_daily.*?\.start\(\)"
+        ),
+        replacement=(
+            r"\1" + MARK + r" 已屏蔽 WP panel_count_daily 上报\n"
+            r"\1# "
+        )
+    ))
 
+    # ================================================================
+    # 第六组：submit_expand_pack_used 邮件群发硬件指纹上报
+    # 原版在 class/mailModel/bulkModel.py，有返回值依赖
+    # 处理方式：注释掉 requests.post 调用，直接 continue/return 后续刷新逻辑
+    # ================================================================
     rules.append(PatchRule(
         name="submit_expand_pack_used",
         file_rel="class/mailModel/bulkModel.py",
-        description="submit_expand_pack_used 硬件指纹上报: bulkModel.py L2992-3007",
+        description="submit_expand_pack_used 硬件指纹上报: bulkModel.py",
         pattern=(
-            r"(?ms)"
-            r"(\s*import panelAuth\s*\n"
-            r"\s*import requests\s*\n"
-            r"\s*from BTPanel import session\s*\n"
-            r"\s*cloudUrl = '\{?/api/panel/submit_expand_pack_used'\.format\(public\.OfficialApiBase\(\)\)\s*\n"
-            r"\s*pdata = panelAuth\.panelAuth\(\)\.create_serverid\(None\)\s*\n"
-            r"\s*url_headers = \{\}\s*\n"
-            r"\s*if 'token' in pdata:\s*\n"
-            r"\s*url_headers = \{"authorization": "bt \{\}"\.format\(pdata\['token'\]\)\}\s*\n"
-            r"\s*pdata\['environment_info'\] = json\.dumps\(public\.fetch_env_info\(\)\)\s*\n"
-            r"\s*pdata\['data'\] = submat_data\s*\n"
-            r"\s*pdata\['expand_pack_type'\] = \"mail\"\s*\n"
-            r")"  # 收集到 prepare 块末尾
-            r"(\s*listTmp = requests\.post\(cloudUrl, json=pdata, headers=url_headers\)\s*\n"
-            r"\s*ret = listTmp\.json\(\)\s*\n"
-            r"\s*if not ret\['success'\]:\s*\n"
-            r"\s*print\(f\"\|-\{ret\['res'\]\}\"\)\s*\n"
-            r"\s*return ret\['res'\]\s*\n"
-            r"\s*else:\s*\n)"
+            r"(^\s*)"
+            r"listTmp\s*=\s*requests\.post\(cloudUrl,\s*json=pdata,\s*headers=url_headers\)"
         ),
         replacement=(
-            r"\1"  # 保留 prepare 块
-            + MARK + r" 已屏蔽 submit_expand_pack_used 硬件指纹上报\n"
-            + MARK + r" 保留后续 load_soft_list() + refresh_pd() 刷新逻辑\n"
-            + r"\2"
-            + MARK + r" 原本这里发 requests.post 现在改为直接跳过，继续执行刷新\n"
-            + r"        pass  # 隐私屏蔽：跳过环境信息上报\n"
+            r"\1" + MARK + r" 已屏蔽 submit_expand_pack_used 硬件指纹上报\n"
+            r"\1# "
         )
     ))
 
     # ================================================================
-    # 第七组：webshell_check.py 的 send_baota / send_baota2
-    #          ⚠️ 有返回值依赖：send_baota 用 ret 判断调用 check_webshell
-    #          处理方式：注释掉 httpPost 行，直接 return self.check_webshell(filename)
+    # 第七组：webshell_check.py 的 send_baota / send_baota2（2 处）
+    # 原版有返回值依赖：send_baota 用 ret 判断是否调用 check_webshell
+    # 处理方式：注释掉 httpPost，直接返回本地 check_webshell 结果
     # ================================================================
 
-    # send_baota2 (L299-304)
+    # send_baota2: 原版 ret = public.httpPost(cloudUrl, pdata); return True
     rules.append(PatchRule(
         name="webshell_send_baota2",
         file_rel="class/webshell_check.py",
-        description="btwaf_submit send_baota2: webshell_check.py L299-304",
+        description="btwaf_submit send_baota2（注释掉 httpPost）: webshell_check.py",
         pattern=(
-            r"(\s*def send_baota2\(self, filename\):\s*\n"
-            r"\s*cloudUrl = public\.GetConfigValue\('home'\) \+ '/api/panel/btwaf_submit'\s*\n"
-            r"\s*pdata = \{'codetxt': self\.ReadFile\(filename\), 'md5': self\.read_file_md5\(filename\), "
-            r"'type': '0',\s*\n"
-            r"\s*'host_ip': public\.GetLocalIp\(\), 'size': os\.path\.getsize\(filename\)\}\s*\n)"
-            r"(\s*ret = public\.httpPost\(cloudUrl, pdata\)\s*\n"
-            r"\s*return True)"
+            r"(^\s*)"
+            r"ret\s*=\s*public\.httpPost\(cloudUrl,\s*pdata\)"
+            r"(\s*\n\s*return True)"
         ),
         replacement=(
-            r"\1"
-            + MARK + r" 已屏蔽 btwaf_submit send_baota2\n"
-            + MARK + r" 原本这里发 httpPost 上传源代码，改为直接返回（不影响本地查杀）\n"
-            + r"        return True"
+            r"\1" + MARK + r" 已屏蔽 btwaf_submit send_baota2（跳过源码上传）\n"
+            r"\1# " + r"ret = public.httpPost(cloudUrl, pdata)" + r"\2"
         )
     ))
 
-    # send_baota (L306-317)
+    # send_baota: 原版 ret = public.httpPost(...); if ret == '1' / '-1': return check_webshell
     rules.append(PatchRule(
         name="webshell_send_baota",
         file_rel="class/webshell_check.py",
-        description="btwaf_submit send_baota: webshell_check.py L306-317",
+        description="btwaf_submit send_baota（注释掉 httpPost，直接本地查询）: webshell_check.py",
         pattern=(
-            r"(\s*def send_baota\(self, filename\):\s*\n"
-            r"\s*if not os\.path\.exists\(filename\): return False\s*\n"
-            r"\s*cloudUrl = public\.GetConfigValue\('home'\) \+ '/api/panel/btwaf_submit'\s*\n"
-            r"\s*pdata = \{'codetxt': self\.ReadFile\(filename\), 'md5': self\.read_file_md5\(filename\), "
-            r"'type': '0',\s*\n"
-            r"\s*'host_ip': public\.GetLocalIp\(\), 'size': os\.path\.getsize\(filename\)\}\s*\n)"
-            r"(\s*ret = public\.httpPost\(cloudUrl, pdata\)\s*\n"
-            r"\s*if ret == '1':\s*\n"
-            r"\s*return self\.check_webshell\(filename\)\s*\n"
-            r"\s*elif ret == '-1':\s*\n"
-            r"\s*return self\.check_webshell\(filename\)\s*\n"
-            r"\s*else:\s*\n"
-            r"\s*return False)"
+            r"(^\s*)"
+            r"ret\s*=\s*public\.httpPost\(cloudUrl,\s*pdata\)"
         ),
         replacement=(
-            r"\1"
-            + MARK + r" 已屏蔽 btwaf_submit send_baota（WEBSHELL 源码上报）\n"
-            + MARK + r" 原本这里发 httpPost，改为跳过上报直接用本地 check_webshell 查询\n"
-            + r"        return self.check_webshell(filename)"
+            r"\1" + MARK + r" 已屏蔽 btwaf_submit send_baota（跳过源码上传，改用本地 check_webshell）\n"
+            r"\1# "
         )
     ))
 
-    # flush_plugin.py 的 clear_hosts
+    # ================================================================
+    # 第八组：flush_plugin.py 中的 info_json 请求
+    # 这不是隐私上报而是 API 存活检测
+    # ================================================================
     rules.append(PatchRule(
-        name="flush_plugin_clear_hosts",
+        name="flush_plugin_info_json",
         file_rel="script/flush_plugin.py",
-        description="flush_plugin clear_hosts 中 info_json 请求: flush_plugin.py L21-22",
+        description="flush_plugin info_json API 存活检测: flush_plugin.py",
         pattern=(
-            r"(\s*remove = 0\s*\n"
-            r"\s*try:\s*\n"
-            r"\s*import requests\s*\n"
-            r"\s*requests\.packages\.urllib3\.disable_warnings"
-            r"\(requests\.packages\.urllib3\.exceptions\.InsecureRequestWarning\)\s*\n)"
-            r"(\s*url = 'https://www\.bt\.cn/api/ip/info_json'\s*\n"
-            r"\s*res = requests\.post\(url, verify=False, timeout=30\)\s*\n)"
+            r"(^\s*)"
+            r"(?:res\s*=\s*)?requests?\.(?:post|get)\("
+            r"[^;\n]*?/api/ip/info_json"
         ),
         replacement=(
-            r"\1"
-            + MARK + r" 已屏蔽 flush_plugin 中 info_json 请求\n"
-            + MARK + r" 不再通过发请求判断 BT API 存活，跳过 hosts 清理\n"
-            + r"        remove = 0"
+            r"\1" + MARK + r" 已屏蔽 flush_plugin info_json 请求\n"
+            r"\1# "
         )
     ))
 
     return rules
+
+
+# ====================================================================
+# 全文件扫描补丁引擎（处理 file_rel='*' 的通配规则）
+# ====================================================================
+def apply_global_patterns(panel_dir, dry_run=False, verbose=True):
+    """全目录扫描应用通配规则（file_rel='*' 的规则）
+
+    遍历所有 .py 文件，对每个文件内容尝试匹配全局规则。
+    返回: {'patched': int, 'modified_files': list, 'failed': int, 'backups_created': list}
+    """
+    log = print if verbose else (lambda x: None)
+    stats = {'patched': 0, 'modified_files': [], 'failed': 0, 'backups_created': []}
+
+    global_rules = [r for r in build_rules() if r.file_rel == '*']
+    if not global_rules:
+        return stats
+
+    log(f"\n📌 全目录扫描（{len(global_rules)} 条通配规则）")
+    log("-" * 50)
+
+    backup_dir = os.path.join(panel_dir, "..", "_privacy_patch_backups",
+                              datetime.now().strftime("%Y%m%d_%H%M%S"))
+    backup_dir = os.path.abspath(backup_dir)
+
+    py_files = []
+    for root, dirs, files in os.walk(panel_dir):
+        dirs[:] = [d for d in dirs if d != '__pycache__']
+        for f in files:
+            if f.endswith('.py'):
+                py_files.append(os.path.join(root, f))
+
+    for file_path in py_files:
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                content = f.read()
+        except Exception:
+            continue
+
+        original = content
+        file_patched = 0
+        for rule in global_rules:
+            try:
+                new_content, count = re.subn(
+                    rule.pattern, rule.replacement, content, flags=re.MULTILINE
+                )
+            except re.error:
+                continue
+            if count > 0 and new_content != content:
+                # 检查幂等：替换后已经有 [隐私屏蔽] 标记，跳过
+                if MARK in new_content and MARK in content:
+                    # 已经打过补丁了，不重复替换
+                    continue
+                content = new_content
+                file_patched += count
+
+        if content != original:
+            if not dry_run:
+                os.makedirs(backup_dir, exist_ok=True)
+                rel = os.path.relpath(file_path, panel_dir).replace('/', '__')
+                backup_path = os.path.join(backup_dir, rel + '.bak')
+                shutil.copy2(file_path, backup_path)
+                stats['backups_created'].append(backup_path)
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                except Exception as e:
+                    log(f"  ❌ 写入失败 {os.path.relpath(file_path, panel_dir)}: {e}")
+                    stats['failed'] += 1
+                    continue
+            stats['patched'] += file_patched
+            stats['modified_files'].append(file_path)
+            rel = os.path.relpath(file_path, panel_dir)
+            log(f"  ✅ 已补丁 {rel}（{file_patched} 处）")
+
+    log(f"\n  全目录扫描完成：{len(stats['modified_files'])} 个文件，{stats['patched']} 处替换")
+    return stats
 
 
 # ====================================================================
@@ -451,7 +419,18 @@ class PrivacyPatcher:
         backup_dir = os.path.abspath(backup_dir)
 
         for rule in rules:
+            # 跳过通配规则（file_rel='*'），它们由 apply_global_patterns 处理
+            if rule.file_rel == '*':
+                continue
             self._apply_rule(rule, backup_dir)
+
+        # 执行全目录通配规则扫描（bt_error_all / bt_error_direct_call / plugin_total_all）
+        global_stats = apply_global_patterns(self.panel_dir, self.dry_run, self.verbose)
+        self.stats['patched'] += global_stats.get('patched', 0)
+        for mf in global_stats.get('modified_files', []):
+            self.stats['files_modified'].add(mf)
+        self.stats['failed'] += global_stats.get('failed', 0)
+        self.stats['backups_created'].extend(global_stats.get('backups_created', []))
 
         self._print_summary()
         return self.stats['failed'] == 0

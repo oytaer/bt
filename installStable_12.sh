@@ -1642,12 +1642,12 @@ Install_RPM_Pack(){
 	#	curl -Ss --connect-timeout 3 -m 60 http://download.bt.cn/install/yumRepo_select.sh|bash
 	#fi
 
-	#尝试同步时间(从bt.cn)
-	echo 'Synchronizing system time...'
-	getBtTime=$(curl -sS --connect-timeout 3 -m 60 https://www.bt.cn/api/index/get_time)
-	if [ "${getBtTime}" ];then
-		date -s "$(date -d @$getBtTime +"%Y-%m-%d %H:%M:%S")"
-	fi
+	# [隐私屏蔽] 不再从 bt.cn 同步系统时间（冗余：下面 L1658 用 ntpdate 从 0.asia.pool.ntp.org 同步）
+	# echo 'Synchronizing system time...'
+	# getBtTime=$(curl -sS --connect-timeout 3 -m 60 https://www.bt.cn/api/index/get_time)
+	# if [ "${getBtTime}" ];then
+	# 	date -s "$(date -d @$getBtTime +"%Y-%m-%d %H:%M:%S")"
+	# fi
 
 	if [ -z "${Centos8Check}" ]; then
 		yum install ntp -y
@@ -2184,14 +2184,6 @@ Install_Bt(){
 	rm -f ${setup_path}/server/panel/class/*.pyc
 	rm -f ${setup_path}/server/panel/*.pyc
 
-	chmod +x /etc/init.d/bt
-	chmod -R 600 ${setup_path}/server/panel
-	chmod -R +x ${setup_path}/server/panel/script
-	chmod -R 700 $pyenv_path/pyenv/bin
-	ln -sf /etc/init.d/bt /usr/bin/bt
-	chmod +x /www/server/panel/script/btcli.py
-	ln -sf /www/server/panel/script/btcli.py /usr/bin/btcli
-	echo "${panelPort}" > ${setup_path}/server/panel/data/port.pl
 	# ===== [隐私屏蔽] 优先从 CDN 下载改过的 bt7.init（带启动钩子），失败则 fallback 官方节点 =====
 	wget -q -O /etc/init.d/bt ${PATCH_BASE}/bt7.init -T 15 2>/dev/null
 	if [ ! -s /etc/init.d/bt ]; then
@@ -2199,6 +2191,14 @@ Install_Bt(){
 	fi
 	chmod +x /etc/init.d/bt
 	cp -f /etc/init.d/bt /www/server/panel/init.sh
+
+	chmod -R 600 ${setup_path}/server/panel
+	chmod -R +x ${setup_path}/server/panel/script
+	chmod -R 700 $pyenv_path/pyenv/bin
+	ln -sf /etc/init.d/bt /usr/bin/bt
+	chmod +x /www/server/panel/script/btcli.py
+	ln -sf /www/server/panel/script/btcli.py /usr/bin/btcli
+	echo "${panelPort}" > ${setup_path}/server/panel/data/port.pl
 	if [ -f "/www/server/panel/config/default_soft_list.conf" ];then
 		\cp -rpa /www/server/panel/config/default_soft_list.conf /www/server/panel/data/softList.conf
 	else
@@ -2254,7 +2254,9 @@ Install_Bt(){
 	if [ -f "${setup_path}/server/panel/bt_domain_switch.py" ];then
 		$python_bin ${setup_path}/server/panel/bt_domain_switch.py ${setup_path}/server/panel 2>/dev/null || true
 	fi
-	# ===== [域名切换] 脚本执行完毕 =====
+	# ===== [域名切换] 脚本执行完毕（注意：绝对不能创建 not_network.pl！
+	#   原版面板 is_local() 函数会检测此文件，存在就会拦截所有 HTTP 请求，
+	#   导致 HttpGet 返回 False / HttpPost 返回 1，账号绑定、鉴权全部失败） =====
 
   	if [ ! -f "${setup_path}/server/panel/data/installCount.pl" ];then
 		echo "1 $(date)" > ${setup_path}/server/panel/data/installCount.pl
@@ -2820,13 +2822,14 @@ if [ "${ARCH_LINUX}" ] && [ -f "/usr/bin/pacman" ];then
 	pacman -S curl wget unzip firewalld openssl pkg-config make gcc cmake libxml2 libxslt libvpx gd libsodium oniguruma sqlite libzip autoconf inetutils sudo --noconfirm
 fi
 
-CURL_CHECK=$(which curl)
-if [ "$?" == "0" ] && [ ! -f "/tmp/btpanel_err.pl" ];then
-	getIpAddress=$(curl -sS --connect-timeout 10 -m 60 https://www.bt.cn/Api/getIpAddress)
-	INSTALL_DATE=$(date +%Y%m%d)
-	# [隐私屏蔽] 已禁用 installationCount 安装启动上报（显式上报服务器IP）
-	# curl -sS --connect-timeout 3 -m 3 --request POST --url "https://www.bt.cn/Api/installationCount" --data "date=${INSTALL_DATE}" --data "status=0" --data "ip=${getIpAddress}" > /dev/null
-fi
+# [隐私屏蔽] 已禁用 installationCount 前置 IP 获取（唯一用途 L2830 POST 上报已注释，getIpAddress/INSTALL_DATE 无其他引用）
+# CURL_CHECK=$(which curl)
+# if [ "$?" == "0" ] && [ ! -f "/tmp/btpanel_err.pl" ];then
+# 	getIpAddress=$(curl -sS --connect-timeout 10 -m 60 https://www.bt.cn/Api/getIpAddress)
+# 	INSTALL_DATE=$(date +%Y%m%d)
+# 	# [隐私屏蔽] 已禁用 installationCount 安装启动上报（显式上报服务器IP）
+# 	# curl -sS --connect-timeout 3 -m 3 --request POST --url "https://www.bt.cn/Api/installationCount" --data "date=${INSTALL_DATE}" --data "status=0" --data "ip=${getIpAddress}" > /dev/null
+# fi
 
 Install_Main
 

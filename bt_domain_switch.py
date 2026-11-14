@@ -64,26 +64,26 @@ class DomainSwitcher:
 
     # 按优先级排序：先处理最具体的长 URL，再处理通配符
     REPLACE_RULES = [
-        # ---- panelPlugin.py / PluginLoader.py 硬编码 ----
+        # ---- panelPlugin.py 硬编码 ----
         # 这些是类属性初始化里的硬编码值，原版写死 'https://api.bt.cn'
+        # 注意：原版面板 PluginLoader 只有 .so 二进制没有 .py 源文件，
+        #       所以 api_root_url 的替换无法通过正则实现（编译后的 .so 无法文本替换），
+        #       但这不影响功能——panelPlugin.__api_root_url 是纯 Python 的，可以被替换
         (r"__api_root_url\s*=\s*['\"]https?://api\.bt\.cn['\"]",
          "__api_root_url = '{}'",
          "panelPlugin.__api_root_url 硬编码"),
 
-        (r"api_root_url\s*=\s*['\"]https?://(www\.bt\.cn|api\.bt\.cn|www\.aapanel\.com)['\"]",
-         "api_root_url = '{}'",
-         "PluginLoader api_root_url 硬编码"),
+        # ---- panelAuth.py cloudURL 硬编码 ----
+        # send_cloud / send_cloud_v2 内部写死 'https://www.bt.cn/api/'
+        (r"cloudURL\s*=\s*['\"]https?://www\.bt\.cn/api/['\"]",
+         "cloudURL = '{}/api/'",
+         "panelAuth.cloudURL 硬编码"),
 
-        # ---- GetConfigValue('home') 短路返回 ----
-        # 原版是 read_bt_prefix("www")，修改版在函数开头硬编码 return
-        # 这是最关键的替换，影响所有通过 GetConfigValue('home') 的调用
-        # 先匹配原版函数体，再注入短路返回
-        (r"(def GetConfigValue\(key\):\s*\n"
-         r"\s*取配置值\s*\n"
-         r"\s*config = GetConfig\(\)\s*\n"
-         r"\s*if key == 'home':)",
-         None,  # 特殊处理：注入一行 return
-         "GetConfigValue('home') 短路返回注入"),
+        # ---- get_home_node 参数硬编码 ----
+        # panelPlugin.py __get_new_url 里写死 'https://api.bt.cn'
+        (r"get_home_node\(\s*['\"]https?://(api\.bt\.cn|www\.bt\.cn)['\"]\s*\)",
+         "get_home_node('{}')",
+         "get_home_node 参数硬编码"),
 
         # ---- OfficialApiBase() 重定向 ----
         # 原版 aapanel.com（国际版），修改版有的保留有的也换了
@@ -111,9 +111,10 @@ class DomainSwitcher:
 
         # ---- www.bt.cn 业务 API 路径 ----
         # 必须用正则精确匹配业务路径，避免替换帮助页面 www.bt.cn/new/* www.bt.cn/bbs
-        (r"https?://www\.bt\.cn/(api|Api|install/update|Auth|bt_cert|api/v2|api/index)/",
+        # 增加 newapi 路径（panelAuth 活动/领券 API）、v3 路径等
+        (r"https?://www\.bt\.cn/(api|Api|install/update|Auth|bt_cert|api/v2|api/index|newapi|api/v3)/",
          "{}/api/",
-         "www.bt.cn 业务 API 路径"),
+         "www.bt.cn 业务 API 路径（含 newapi/v3）"),
 
         # ---- api.bt.cn 业务 API ----
         # 注意：不要匹配 /api/ 后缀（留给下一条精确处理）
@@ -136,46 +137,37 @@ class DomainSwitcher:
         (r"https?://cf1-node\.aapanel\.com",
          "{}",
          "aapanel.com 节点域名"),
+
+        # ---- nps.bt.cn（NPS 问卷 API，config.py 多处引用） ----
+        (r"https?://nps\.bt\.cn",
+         "{}",
+         "nps.bt.cn 问卷 API 域名"),
+
+        # ---- api.aapanel.com（国际版独立 SSL API，createSsl.py 用） ----
+        (r"https?://api\.aapanel\.com",
+         "{}",
+         "api.aapanel.com 国际版独立 API"),
     ]
 
-    # ---- 函数注入规则（不是简单正则替换，而是在函数体开头插入代码） ----
+    # ---- 函数注入规则 ----
+    # 只保留 GetConfigValue('home') 短路返回
+    # HttpGet/HttpPost 不做任何拦截——51baota 修改版就是这么做的
+    # 域名替换靠下面的 REPLACE_RULES 正则处理
     INJECT_RULES = [
         {
             'target_file': 'class/public.py',
             'pattern': (
                 r"(def GetConfigValue\(key\):\s*\n"
-                r"\s*取配置值\s*\n"
-                r"\s*config = GetConfig\(\)\s*\n)"
+                r"\s*'''\s*\n"
+                r"\s*@取配置值\s*\n"
+                r"\s*'''\s*\n"
+                r"\s*config = GetConfig\(\))"
             ),
             'inject': (
-                "\n    # [域名切换] 直接短路返回 Mock 服务器地址\n"
+                "\n    # [域名切换] 直接短路返回 Mock 服务器地址（覆盖原版 read_bt_prefix 动态取值）\n"
                 "    if key == 'home': return '" + DEFAULT_MOCK_DOMAIN + "'\n"
             ),
             'description': "GetConfigValue('home') 注入短路返回",
-        },
-        {
-            'target_file': 'class/public.py',
-            'pattern': (
-                r"(def HttpGet\(url, timeout=\(3, 6\), headers=None\):\s*\n)"
-            ),
-            'inject': (
-                "\n    # [域名切换] 本地离线模式拦截\n"
-                "    if url.find('GetAuthToken') == -1:\n"
-                "        if is_local(): return False\n"
-            ),
-            'description': "HttpGet 注入 is_local 拦截",
-        },
-        {
-            'target_file': 'class/public.py',
-            'pattern': (
-                r"(def HttpPost\(url, data='', timeout=\(3, 6\), headers=None\):\s*\n)"
-            ),
-            'inject': (
-                "\n    # [域名切换] 本地离线模式拦截\n"
-                "    if url.find('GetAuthToken') == -1:\n"
-                "        if is_local(): return False\n"
-            ),
-            'description': "HttpPost 注入 is_local 拦截",
         },
     ]
 
