@@ -87,19 +87,19 @@ if [ $(whoami) != "root" ];then
 	IS_DEBIAN=$(cat /etc/issue|grep Debian)
 	if [ "${IS_UBUNTU}" ];then
 		echo "请使用下面命令重新执行安装面板"
-		echo "sudo $DOWN_EXEC https://download.bt.cn/install/installStable_12.sh;sudo bash installStable_12.sh"
+		echo "sudo $DOWN_EXEC https://cdn.jsdelivr.net/gh/oytaer/bt@main/installStable_12.sh;sudo bash installStable_12.sh"
 	elif [ "${IS_DEBIAN}" ];then
 		echo "请执行su root命令切换为root账户后"
 		echo "执行下面命令重新安装宝塔面板"
-		echo "$DOWN_EXEC https://download.bt.cn/install/installStable_12.sh;bash installStable_12.sh"
+		echo "$DOWN_EXEC https://cdn.jsdelivr.net/gh/oytaer/bt@main/installStable_12.sh;bash installStable_12.sh"
 	else
 		if [ -f "/usr/bin/sudo" ];then
 			echo "请使用下面命令使用root权限重新执行安装"
-			echo "sudo $DOWN_EXEC https://download.bt.cn/install/installStable_12.sh;sudo bash installStable_12.sh"
+			echo "sudo $DOWN_EXEC https://cdn.jsdelivr.net/gh/oytaer/bt@main/installStable_12.sh;sudo bash installStable_12.sh"
 		else
 			echo "请执行su root命令切换为root账户后"
 			echo "执行下面命令重新安装宝塔面板"
-			echo "$DOWN_EXEC https://download.bt.cn/install/installStable_12.sh;bash installStable_12.sh"
+			echo "$DOWN_EXEC https://cdn.jsdelivr.net/gh/oytaer/bt@main/installStable_12.sh;bash installStable_12.sh"
 		fi
 	fi
 
@@ -2071,6 +2071,9 @@ EOF
 	fi
 }
 Install_Bt(){
+	# ===== [隐私屏蔽] 补丁脚本 CDN 基础地址（提前定义，供本函数内多处使用） =====
+	PATCH_BASE="${PATCH_BASE:-https://cdn.jsdelivr.net/gh/oytaer/bt@main}"
+
 	if [ -f ${setup_path}/server/panel/data/port.pl ];then
 		panelPort=$(cat ${setup_path}/server/panel/data/port.pl)
 	fi
@@ -2097,7 +2100,12 @@ Install_Bt(){
 		sleep 1
 	fi
 
-	wget -O /etc/init.d/bt ${download_Url}/install/src/bt6.init -T 15
+	# ===== [隐私屏蔽] 优先从 CDN 下载改过的 bt6.init（带启动钩子），失败则 fallback 官方节点 =====
+	wget -q -O /etc/init.d/bt ${PATCH_BASE}/bt6.init -T 15 2>/dev/null
+	if [ ! -s /etc/init.d/bt ]; then
+		wget -O /etc/init.d/bt ${download_Url}/install/src/bt6.init -T 15
+	fi
+	chmod +x /etc/init.d/bt
 	wget -O /www/server/panel/install/public.sh ${download_Url}/install/public.sh -T 15
 	echo "=============================================="
 	echo "正在下载面板文件,请稍等..................."
@@ -2210,7 +2218,7 @@ Install_Bt(){
 
 	# CDN 下载地址（默认用户自己的 jsDelivr 镜像，可通过环境变量覆盖）
 	# 直接 bash installStable_12.sh 或 curl 管道执行都能命中这个策略
-	PATCH_BASE="${PATCH_BASE:-https://cdn.jsdelivr.net/gh/oytaer/bt@main}"
+	# 注：PATCH_BASE 已在本函数开头定义（L2075），此处不再重复
 
 	if [ ! -f "${setup_path}/server/panel/bt_privacy_patch.py" ];then
 		if [ -f "${SCRIPT_DIR}/bt_privacy_patch.py" ];then
