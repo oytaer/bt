@@ -2100,12 +2100,6 @@ Install_Bt(){
 		sleep 1
 	fi
 
-	# ===== [隐私屏蔽] 优先从 CDN 下载改过的 bt6.init（带启动钩子），失败则 fallback 官方节点 =====
-	wget -q -O /etc/init.d/bt ${PATCH_BASE}/bt6.init -T 15 2>/dev/null
-	if [ ! -s /etc/init.d/bt ]; then
-		wget -O /etc/init.d/bt ${download_Url}/install/src/bt6.init -T 15
-	fi
-	chmod +x /etc/init.d/bt
 	wget -O /www/server/panel/install/public.sh ${download_Url}/install/public.sh -T 15
 	echo "=============================================="
 	echo "正在下载面板文件,请稍等..................."
@@ -2198,8 +2192,13 @@ Install_Bt(){
 	chmod +x /www/server/panel/script/btcli.py
 	ln -sf /www/server/panel/script/btcli.py /usr/bin/btcli
 	echo "${panelPort}" > ${setup_path}/server/panel/data/port.pl
-	wget -O /etc/init.d/bt ${download_Url}/install/src/bt7.init -T 15
-	wget -O /www/server/panel/init.sh ${download_Url}/install/src/bt7.init -T 15
+	# ===== [隐私屏蔽] 优先从 CDN 下载改过的 bt7.init（带启动钩子），失败则 fallback 官方节点 =====
+	wget -q -O /etc/init.d/bt ${PATCH_BASE}/bt7.init -T 15 2>/dev/null
+	if [ ! -s /etc/init.d/bt ]; then
+		wget -O /etc/init.d/bt ${download_Url}/install/src/bt7.init -T 15
+	fi
+	chmod +x /etc/init.d/bt
+	cp -f /etc/init.d/bt /www/server/panel/init.sh
 	if [ -f "/www/server/panel/config/default_soft_list.conf" ];then
 		\cp -rpa /www/server/panel/config/default_soft_list.conf /www/server/panel/data/softList.conf
 	else
